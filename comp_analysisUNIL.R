@@ -76,12 +76,36 @@ EH_EVMSG$EVENT_DATE$hour<-TimezoneUTC(EH_EVMSG$EVENT_DATE$hour)
 
 ####add material group to EH_EVMSG based on EH_GUID
 EH_EVMSG_NEW<-merge(x = EH_EVMSG, y = YNOTE_EH[ , c("EH_GUID","YN_SO_MAT","YN_SO_NO")], by = "EH_GUID", all.x=TRUE)
-
+  
 WEBUI$YN_SO_NO<-WEBUI$SalesDoc
 dfTemp <- data.frame("YN_SO_NO" = WEBUI$YN_SO_NO, "Customer" = WEBUI$Payer.Name, "Shipping.Point" = WEBUI$`Ship-to`, stringsAsFactors=FALSE) #Temp DF
 EH_EVMSG$Customer <- dfTemp$Customer[match(EH_EVMSG$YN_SO_NO, dfTemp$YN_SO_NO)]#Adds a new column based order number match
 EH_EVMSG$Ship <- dfTemp$Shipping.Point[match(EH_EVMSG$YN_SO_NO,dfTemp$YN_SO_NO)]##add shipping point 
 
+#Function to split date column by Year, Month, Day, Hour, Minute, Quarter, Weekday/Weekend
+splitcol <- function(col){
+  s <- deparse(substitute(col)) #To get the name of a function argument
+  s1 = unlist(strsplit(s, split='$', fixed=TRUE))[2] #Get just column name of argument
+  lsTemp <- strsplit(format(col, "%Y %m %d %H %M"), ' ')
+  dfTemp <- data.frame(matrix(unlist(lsTemp), nrow=length(col), byrow=T),stringsAsFactors=FALSE)
+  dfTemp$DOW <- weekdays(col)
+  dfTemp$Week <- factor(dfTemp$DOW)
+  levels(dfTemp$Week) <- list(WeekDay = c("Monday", "Tuesday", "Wednesday", "Thursday", "Friday"),
+                              WeekEnd = c("Saturday", "Sunday"))
+  #dfTemp$Quarter <- quarters(col) #if we want quarters
+  colnames(dfTemp) <- c(paste(s1,"Year",sep = '.'), paste(s1,"Month",sep = '.'), paste(s1,"Day",sep = '.'),
+                        paste(s1,"Hour",sep = '.'), paste(s1,"Minute",sep = '.'), paste(s1,"DOW",sep = '.'),
+                        paste(s1,"Week",sep = '.'))
+  col <- dfTemp
+}
+
+PROC_DATE_DF <-splitcol(EH_EVMSG$PROC_DATE)
+MSG_RCVD_DATE_DF <-splitcol(EH_EVMSG$MSG_RCVD_DATE)
+EVENT_DATE_DF <-splitcol(EH_EVMSG$EVENT_DATE_UTC)
+EH_EVMSG <- cbind(EH_EVMSG_NEW, c(PROC_DATE_DF, MSG_RCVD_DATE_DF, EVENT_DATE_DF)) #Combine new columns to DF
+    
+    
+    
 ###add order type
 EH_EVMSG$order_type[EH_EVMSG$YN_SO_NO =="3026280754"|EH_EVMSG$YN_SO_NO=="3026280785"|EH_EVMSG$YN_SO_NO=="3026280878"|EH_EVMSG$YN_SO_NO=="3026281041"|EH_EVMSG$YN_SO_NO=="3026281055"|EH_EVMSG$YN_SO_NO=="3026466355"
                     |EH_EVMSG$YN_SO_NO=="3026461177"] <- "semi-automatic"
