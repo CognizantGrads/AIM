@@ -33,13 +33,17 @@ WEBUI<-read.xlsx(fpname2)###webui
 CRM<-read.xlsx(fpname3) ##crm
 
 ###Delete Columns with all NA's or ALL 0
-EH_EVMSG$EARLIEST_MSG_DTE <- NULL
-EH_EVMSG$LATEST_MSG_DATE <- NULL
-EH_EVMSG$ADD_DATA <- NULL
-EH_EVMSG$BUILT_EH_HIER <- NULL
-EH_EVMSG$EVENT_DATE <- NULL #data also provides GMT
-EH_EVMSG$EVENT_TZONE <-NULL
-EH_EVMSG$MSG_EXP_TZONE <-NULL
+#EH_EVMSG$EARLIEST_MSG_DTE <- NULL
+#EH_EVMSG$LATEST_MSG_DATE <- NULL
+#EH_EVMSG$ADD_DATA <- NULL
+#EH_EVMSG$BUILT_EH_HIER <- NULL
+#EH_EVMSG$EVENT_DATE <- NULL #data also provides GMT
+#EH_EVMSG$EVENT_TZONE <-NULL
+#EH_EVMSG$MSG_EXP_TZONE <-NULL
+
+##We can do the above with a one liner
+EH_EVMSG<-EH_EVMSG[, colSums(is.na(EH_EVMSG)) != nrow(EH_EVMSG)]
+EH_EVMSG<-EH_EVMSG[,apply(EH_EVMSG,2,function(EH_EVMSG) !all(EH_EVMSG==0))] 
 
 ###Function convert to date
 numToDate <- function(x){
@@ -68,12 +72,52 @@ TimezoneUTC <- function(x){ #Minus hour(CET to GMT)
 #EARLIEST_EV_DATE,LATEST_EV_DATE
 EH_EVMSG$LATEST_EV_DATE$hour <- TimezoneUTC(EH_EVMSG$LATEST_EV_DATE$hour) #Change for each CET column
 EH_EVMSG$EARLIEST_EV_DATE$hour <- TimezoneUTC(EH_EVMSG$EARLIEST_EV_DATE$hour) #Change for each CET column
-
+EH_EVMSG$EVENT_DATE$hour<-TimezoneUTC(EH_EVMSG$EVENT_DATE$hour) 
 
 ####add material group to EH_EVMSG based on EH_GUID
 EH_EVMSG_NEW<-merge(x = EH_EVMSG, y = YNOTE_EH[ , c("EH_GUID","YN_SO_MAT","YN_SO_NO")], by = "EH_GUID", all.x=TRUE)
 
-names(WEBUI)[names(WEBUI) == 'SalesDoc'] <- 'YN_SO_NO' #Rename column 
-dfTemp <- data.frame("YN_SO_NO" = WEBUI$YN_SO_NO, "Payer.Name" = WEBUI$Payer.Name, stringsAsFactors=FALSE) #Temp DF
-EH_EVMSG_NEW$Customer <- dfTemp$Payer.Name[match(EH_EVMSG_NEW$YN_SO_NO, dfTemp$YN_SO_NO)] #Adds a new column based order number match
+WEBUI$YN_SO_NO<-WEBUI$SalesDoc
+dfTemp <- data.frame("YN_SO_NO" = WEBUI$YN_SO_NO, "Customer" = WEBUI$Payer.Name, "Shipping.Point" = WEBUI$`Ship-to`, stringsAsFactors=FALSE) #Temp DF
+EH_EVMSG$Customer <- dfTemp$Customer[match(EH_EVMSG$YN_SO_NO, dfTemp$YN_SO_NO)]#Adds a new column based order number match
+EH_EVMSG$Ship <- dfTemp$Shipping.Point[match(EH_EVMSG$YN_SO_NO,dfTemp$YN_SO_NO)]##add shipping point 
+
+###add order type
+EH_EVMSG$order_type[EH_EVMSG$YN_SO_NO =="3026280754"|EH_EVMSG$YN_SO_NO=="3026280785"|EH_EVMSG$YN_SO_NO=="3026280878"|EH_EVMSG$YN_SO_NO=="3026281041"|EH_EVMSG$YN_SO_NO=="3026281055"|EH_EVMSG$YN_SO_NO=="3026466355"
+                    |EH_EVMSG$YN_SO_NO=="3026461177"] <- "semi-automatic"
+
+EH_EVMSG$order_type[EH_EVMSG$YN_SO_NO =="3026447402"|EH_EVMSG$YN_SO_NO=="3026447427"|EH_EVMSG$YN_SO_NO=="3026466610"] <- "manual"
+
+EH_EVMSG$order_type[EH_EVMSG$YN_SO_NO =="3026448345"|EH_EVMSG$YN_SO_NO=="3026467149"|EH_EVMSG$YN_SO_NO=="3026509732"] <- "NA"
+
+EH_EVMSG$order_type[EH_EVMSG$YN_SO_NO =="3026460670"] <- "automatic"
+
+###compute transmission time (in seconds)
+
+EH_EVMSG$transmission.time<-difftime(EH_EVMSG$MSG_RCVD_DATE,EH_EVMSG$EVENT_DATE_UTC)
+
+##order by material and date prior to time computation
+
+EH_EVMSG <- EH_EVMSG[order(EH_EVMSG$YN_SO_MAT,EH_EVMSG$EVENT_DATE),] 
+
+##compute transmission time between events
+
+gf<-EH_EVMSG$EVENT_DATE
+gf<-as.POSIXlt(gf)
+gf<-as.numeric(gf)
+vec<-data.frame(diff(as.matrix(gf)))
+vec$min<-vec$diff.as.matrix.gf../60
+vec$hour<-vec$min/60
+vec$days<-vec$hour/24
+colnames(vec)<-c("diff.sec","diff.min","diff.hours","diff.days")
+df<-data.frame("diff.sec"= NA,"diff.min"=NA,"diff.hours"=NA,"diff.days"=NA)
+vec<-rbind(df,vec)
+
+##add columns to master table
+
+EH_EVMSG$event.time.secs<-vec$diff.sec
+EH_EVMSG$event.time.mins<-vec$diff.min
+
+##write master table
+    
 write.csv(EH_EVMSG_NEW, file = "D://D//Cognizant//Projects//Internal//Unilever//Master.csv",row.names=FALSE)
